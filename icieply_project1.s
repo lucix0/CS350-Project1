@@ -77,6 +77,10 @@ parity_bit_4:               .word 0
 parity_bit_8:               .word 0
 parity_bit_t:               .word 0
 
+# 2344-byte offset
+# Full 16-bit encoded codeword
+full_encoded_codeword:      .word 0
+
 # User's unvalidated 11-bit data
 unvalidated_data:           .word 0
 
@@ -351,6 +355,78 @@ hamming_encode:
 
 skip_not_odd2:
     # Insert parity bits into codeword and print
+    lui $t1, 0x1000
+    # PT
+    addi $t2, $t1, 2340 # Location of total parity bit data
+    lw $t3, 0($t2)
+    or $0, $0, $0
+    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+
+    # P1
+    addi $t2, $t1, 2324 # Location of parity bit 1 data
+    lw $t3, 0($t2)
+    or $0, $0, $0
+    sll $t3, $t3, 1     # Position bit in P1 position
+    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+
+    # P2
+    lw $t3, 4($t2)
+    or $0, $0, $0
+    sll $t3, $t3, 2     # Position bit in P2 position
+    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+
+    # P4
+    lw $t3, 8($t2)
+    or $0, $0, $0
+    sll $t3, $t3, 4     # Position bit in P4 position
+    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+
+    # P8
+    lw $t3, 12($t2)
+    or $0, $0, $0
+    sll $t3, $t3, 8     # Position bit in P8 position
+    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+
+    # Store completed codeword in memory
+    sw $t0, 20($t2)
+    or $0, $0, $0
+
+    # Print prompt
+    addiu $v0, $0, 4
+    addu $a0, $0, $t1
+    addiu $a0, $a0, 256
+    syscall
+
+    # Print encoded codeword
+    # Loop through each bit, MSB to LSB, and print either 1 or 0
+    addi $t1, $0, 15 # Bit index
+    codeword_print_loop_start:
+        addi $t2, $0, 1
+        sllv $t2, $t2, $t1 # Shift left by bit index
+        and $t2, $t0, $t2
+        srlv $t2, $t2, $t1 # Shift right by bit index
+
+        # Branch if $t2 is not 1
+        beq $t2, $0, skip_not_one3
+        or $0, $0, $0
+        # If its a 1, print ASCII 1
+        addi $v0, $0, 11
+        addi $a0, $0, 49 # ASCII code for 1
+        syscall
+        j done
+        or $0, $0, $0
+
+    skip_not_one3:
+        # If its a 0, print ASCII 0
+        addi $v0, $0, 11
+        addi $a0, $0, 48 # ASCII code for 0
+        syscall
+
+    done:
+        addi $t1, $t1, -1 # Decrement bit index
+        addi $t3, $0, -1 # Loop limit
+        bne $t1, $t3, codeword_print_loop_start # Exit loop if bit index is -1
+        or $0, $0, $0
 
     jr $ra
     or $0, $0, $0

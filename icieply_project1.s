@@ -3,34 +3,105 @@
 # Prompt messages
 #
 
-# 0 byte offset
+# 0-byte offset
 initial_prompt:         .asciiz "\nPlease choose one of the following options:\n\t1. Encode (e)\n\t2. Decode (d)\n\t3. Terminate (t)\n"
                         .align 7
-# 128 byte offset
-start_encode_prompt:    .asciiz "\nPlease enter a sequence of 0s and 1s to encode: "
+# 128-byte offset
+start_encode_prompt:    .asciiz "\nPlease enter a sequence of 11 0s and 1s, representing an unencoded vote count, to encode: "
                         .align 7
-# 256 byte offset
+# 256-byte offset
 end_encode_prompt:      .asciiz "\nEncoded data: "
                         .align 7
-# 384 byte offset
-start_decode_prompt:    .asciiz "\nPlease enter a sequence of 0s and 1s to decode: "
+# 384-byte offset
+start_decode_prompt:    .asciiz "\nPlease enter a sequence of 16 0s and 1s, representing an encoded vote count, to decode: "
                         .align 7
-# 512 byte offset
+# 512-byte offset
+unvalidated_prompt:     .asciiz "\nUnvalidated data bits: "
+                        .align 7
+# 640-byte offset
+corrected_code_prompt:  .asciiz "\nCorrected codeword: "
+                        .align 7
+# 768-byte offset
+corrected_data_prompt:  .asciiz "\nCorrected data: "
+                        .align 7
+# 896-byte offset
 end_decode_prompt:      .asciiz "\nDecoded data: "
                         .align 7
-# 640 byte offset
+# 1024-byte offset
 terminate_prompt:       .asciiz "\nTerminating the program..."
                         .align 7
-# 768 byte offset
+# 1152-byte offset
 invalid_option_prompt:  .asciiz "\nInvalid option. Please try again...\n"
+                        .align 7
+# 1280-byte offset
+parity_bit_prompt:      .asciiz "\nParity bits (P8, P4, P2, P1, PT): "
+                        .align 7
+# 1408-byte offset
+syndrome_prompt:        .asciiz "\nHamming syndrome (P8, P4, P2, P1): "
+                        .align 7
+# 1536-byte offset
+total_parity_pass:      .asciiz "\nTotal parity - PASS"
+                        .align 7
+# 1664-byte offset
+total_parity_fail:      .asciiz "\nTotal parity - FAIL"
+                        .align 7
+# 1792-byte offset
+result_0_error:         .asciiz "\nThe encoded codeword is valid"
+                        .align 7
+# 1920-byte offset
+result_1_error:         .asciiz "\nThe encoded codeword has 1 error"
+                        .align 7
+# 2048-byte offset
+result_2_error:         .asciiz "\nThe encoded codeword has 2 errors"
+                        .align 7
+# 2176-byte offset
+error_2_prompt:         .asciiz "\nUnable to correct codeword if 2 errors are present"
+                        .align 7
 
 #
 # Other values
 #
 
+# Buffer for user input strings
+user_input_string_buf:      .space 16
+
+# 2320-byte offset
+# User's converted inputted codeword or data
+user_input_codeword_data:   .word 0
+
+# Parity bits
+parity_bit_8:               .word 0
+parity_bit_4:               .word 0
+parity_bit_2:               .word 0
+parity_bit_1:               .word 0
+parity_bit_t:               .word 0
+
+# User's unvalidated 11-bit data
+unvalidated_data:           .word 0
+
+# Hamming syndrome of inputted user codeword
+hamming_syndrome:           .word 0
+
+# User's fixed codeword
+fixed_codeword:             .word 0
+
+# Extracted data from fixed codeword
+correct_data:               .word 0
 
 .text
 main:
+    addi $s0, $0, 1
+    addi $s1, $0, 2
+
+    # Store $s0, $s1, and $ra on stack 
+    addi $sp, $sp, -12
+    sw $s0, 0($sp)
+    or $0, $0, $0
+    sw $s1, 4($sp)
+    or $0, $0, $0
+    sw $ra, 8($sp)
+    or $0, $0, $0
+
     # Load address of data segment start
     # Contains prompt messages first
     lui $s0, 0x1000
@@ -56,29 +127,149 @@ start_of_program:
     addiu $t2, $0, 116 # t ASCII code
 
     # Branch to decode
-    beq $s1, $t0, decode
+    bne $s1, $t0, skip0
+    or $0, $0, $0
+    jal hamming_decode
+    or $0, $0, $0
+skip0:
     # Branch to encode
-    beq $s1, $t1, encode
+    bne $s1, $t1, skip1
+    or $0, $0, $0
+    jal hamming_encode
+    or $0, $0, $0
+skip1:
     # Branch to terminate
-    beq $s1, $t2, terminate
-    # Otherwise, ask for input again
-    j invalid_option
+    bne $s1, $t2, skip2
+    or $0, $0, $0
+    j terminate
+    or $0, $0, $0
+skip2:
+    j start_of_program
+    or $0, $0, $0
+
+
+terminate:
+    # Print termination prompt
+    addiu $v0, $0, 4
+    addu $a0, $0, $s0
+    addiu $a0, $a0, 1024
+    syscall
+
+    # Pull $s0, $s1, and $ra off stack
+    lw $ra, 8($sp)
+    or $0, $0, $0
+    lw $s1, 4($sp)
+    or $0, $0, $0
+    lw $s0, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 12
 
     jr $ra
     or $0, $0, $0
 
-encode:
-    # Print initial prompt, displaying various options
+
+# Name: hamming_encode
+# Purpose: Encode a given piece of data as a 16-11 hamming code
+# Input: 11 bits of data
+# Output: 16-bit hamming code
+hamming_encode:
+    # Start of data segment
+    lui $t0, 0x1000
+
+    # Print start encode prompt
     addiu $v0, $0, 4
-    addu $a0, $0, $s0
+    addu $a0, $0, $t0
     addiu $a0, $a0, 128
+    syscall
+
+    # Take in user 11-character data string and store in data segment
+    addiu $v0, $0, 8
+    addiu $a0, $t0, 2304 # Buffer
+    addiu $a1, $0, 18   # Character read limit
+    syscall
+
+    # Convert user's data to word
+    # String buffer starts at 2304-byte offset and LSB is 10 bytes from start of buffer
+    addi $t1, $t0, 2314 # String buffer offset
+    addi $t2, $0, 10 # Counter
+    addi $t5, $0, 10 # For calculating shift amount
+    addi $t3, $0, 49 # 1 ascii code
+    addi $t7, $0, -1 # Loop limit
+    loop_start0:
+        # Load character
+        lb $t4, 0($t1)
+        or $0, $0, $0
+        # Branch if character is not 1
+        bne $t4, $t3, skip_loop0
+        or $0, $0, $0
+        # Calculate shift amount (10 - counter)
+        sub $t6, $t5, $t2
+        # Move 1 into position of character
+        addi $t4, $0, 1
+        sll $t6, $t4, $t6
+        # OR to place 1 into converted word
+        or $t9, $t9, $t6
+    skip_loop0:
+        # Decrement counter
+        addi $t2, $t2, -1
+        # Decrement string buffer offset
+        addi $t1, $t1, -1
+        # Go to next iteration if counter >= 0
+        bne $t2, $t7, loop_start0
+        or $0, $0, $0
+
+    # Save converted data to data segment
+    sw $t9, 2320($t0)
+    or $0, $0, $0
+
+    # Place data bits into 16,11 codeword
+    add $t0, $0, $0 # Codeword
+    addi $t1, $0, 1 # Bitmask
+    # Data bit 0
+    and $t2, $t9, $t1 # Isolate data bit
+    sll $t1, $t1, 1   # Shift bitmask left by 1 bit
+    sll $t2, $t2, 3   # Shift data bit left by 3 bits
+    or $t0, $t0, $t2  # OR codeword by shifted data bit
+    # Data bits 1 to 3
+    add $t3, $0, $0 # Counter
+    addi $t4, $0, 3 # Loop limit
+    bits1to3loopstart:
+        and $t2, $t9, $t1 # Isolate data bit
+        sll $t1, $t1, 1   # Shift bitmask left by 1 bit
+        sll $t2, $t2, 4   # Shift data bit left by 4 bits
+        or $t0, $t0, $t2  # OR codeword by shifted data bit
+
+        addi $t3, $t3, 1                # Increment counter
+        bne $t3, $t4, bits1to3loopstart # Exit loop if Counter is not less than 3
+        or $0, $0, $0
+    # Data bits 4 to 11
+    add $t3, $0, $0 # Counter
+    addi $t4, $0, 8 # Loop limit
+    bits4to11loopstart:
+        and $t2, $t9, $t1 # Isolate data bit
+        sll $t1, $t1, 1   # Shift bitmask left by 1 bit
+        sll $t2, $t2, 5   # Shift data bit left by 5 bits
+        or $t0, $t0, $t2  # OR codeword by shifted data bit
+
+        addi $t3, $t3, 1                 # Increment counter
+        bne $t3, $t4, bits4to11loopstart # Exit loop if Counter is not less than 8
+        or $0, $0, $0
+
+    # Print the unfinished codeword as test
+    addiu $v0, $0, 1
+    add $a0, $0, $t0
     syscall
 
     jr $ra
     or $0, $0, $0
 
-decode:
-    # Print initial prompt, displaying various options
+
+# Name: hamming_decode
+# Purpose: Decode a given 16-11 hamming code
+# Input: 16-bit hamming code
+# Output: 11 bits of data
+hamming_decode:
+    # Print  
     addiu $v0, $0, 4
     addu $a0, $0, $s0
     addiu $a0, $a0, 384
@@ -87,23 +278,3 @@ decode:
     jr $ra
     or $0, $0, $0
 
-terminate:
-    # Print initial prompt, displaying various options
-    addiu $v0, $0, 4
-    addu $a0, $0, $s0
-    addiu $a0, $a0, 640
-    syscall
-
-    jr $ra
-    or $0, $0, $0
-
-invalid_option:
-    # Prints the invalid option prompt
-    addiu $v0, $0, 4
-    addu $a0, $0, $s0
-    addiu $a0, $a0, 768
-    syscall
-
-    # Ask for input again
-    j start_of_program
-    or $0, $0, $0

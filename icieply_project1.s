@@ -69,11 +69,12 @@ user_input_string_buf:      .space 16
 # User's converted inputted codeword or data
 user_input_codeword_data:   .word 0
 
+# 2324-byte offset
 # Parity bits
-parity_bit_8:               .word 0
-parity_bit_4:               .word 0
-parity_bit_2:               .word 0
 parity_bit_1:               .word 0
+parity_bit_2:               .word 0
+parity_bit_4:               .word 0
+parity_bit_8:               .word 0
 parity_bit_t:               .word 0
 
 # User's unvalidated 11-bit data
@@ -259,6 +260,7 @@ hamming_encode:
     add $t0, $0, $t0 # Codeword
     add $t1, $0, $0  # Column index
     add $t2, $0, $0  # Total parity count
+    addi $t9, $0, 2324 # Offset to parity bit data segment
     # Loop iteration for each parity bit
     parity_loop_start:
         addi $t3, $0, 1 # For shift
@@ -270,14 +272,85 @@ hamming_encode:
             addi $t6, $0, 1 # For shift
             sllv $t6, $t6, $t4
             and $t6, $t0, $t6
-            srlv $t6, $t6, $t4
-            # Done here
+            srlv $t6, $t6, $t4 # Value isolated
+            
+            # Is the value a 1, then increment
+            addi $t7, $0, 1
+            bne $t6, $t7, skip_not_one # If not 1, branch
+            or $0, $0, $0
 
+            # Then check if the bit corrsponds to the current column mask
+            and $t8, $t4, $t3 # AND bit index with column mask
+            bne $t8, $t3, skip_not_one
+            or $0, $0, $0
+            # If it does correspond, increment by 1
+            addi $t5, $t5, 1 # Increment 1 counter
+        skip_not_one:
+            addi $t4, $t4, 1 # Increment bit index
+            addi $t7, $0, 16
+            bne $t4, $t7, bit_index_loop_start # Exit loop if bit index reaches 16
+            or $0, $0, $0
 
-    # Print the unfinished codeword as test
-    addiu $v0, $0, 1
-    add $a0, $0, $t0
-    syscall
+        # If the parity is odd, set parity bit
+        addi $t7, $0, 1
+        andi $t6, $t5, 1
+        bne $t6, $t7, skip_not_odd
+        or $0, $0, $0
+
+        # Increment total parity count
+        addi $t2, $t2, 1
+        # Set parity bit
+        lui $t8, 0x1000
+        add $t8, $t8, $t9 # Calculate address of parity bit
+        sw $t7, 0($t8)    # Place a 1 in the memory slot
+        or $0, $0, $0
+    
+    skip_not_odd:
+        addi $t1, $t1, 1 # Increment column index
+        addi $t9, $t9, 4 # Increment parity bit data segment offset
+
+        # Exit loop if column index reaches 4
+        addi $t7, $0, 4
+        bne $t1, $t7, parity_loop_start
+        or $0, $0, $0
+
+    # Calculate total parity bit
+    add $t3, $0, $0 # Reset bit index  
+    total_parity_loop_start:
+        # Isolate bit's value into $t6
+        addi $t6, $0, 1 # For shift
+        sllv $t6, $t6, $t3
+        and $t6, $t0, $t6
+        srlv $t6, $t6, $t3 # Value isolated
+
+        # Is the bit's value 1?
+        addi $t4, $0, 1
+        bne $t6, $t4, skip_not_one2 # Branch if its not 1
+        or $0, $0, $0
+        addi $t2, $t2, 1 # Increment total parity count
+
+    skip_not_one2:
+        addi $t3, $t3, 1 # Increment bit index
+
+        # Exit loop if bit index reaches 16
+        addi $t5, $0, 16
+        bne $t5, $t3, total_parity_loop_start
+        or $0, $0, $0
+
+    # If the parity is odd, set parity bit
+    addi $t7, $0, 1
+    andi $t8, $t2, 1
+    bne $t8, $t7, skip_not_odd2
+    or $0, $0, $0
+
+    # Set parity bit
+    lui $t8, 0x1000
+    addi $t8, $t8, 2340 # Calculate address of parity bit
+    sw $t7, 0($t8)      # Place a 1 in the memory slot
+    or $0, $0, $0
+
+skip_not_odd2:
+    # Insert parity bits into codeword and print
 
     jr $ra
     or $0, $0, $0

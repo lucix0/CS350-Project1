@@ -255,6 +255,25 @@ hamming_encode:
         bne $t3, $t4, bits4to11loopstart # Exit loop if Counter is not less than 8
         or $0, $0, $0
 
+    # Calculate parity bits
+    add $t0, $0, $t0 # Codeword
+    add $t1, $0, $0  # Column index
+    add $t2, $0, $0  # Total parity count
+    # Loop iteration for each parity bit
+    parity_loop_start:
+        addi $t3, $0, 1 # For shift
+        sllv $t3, $t3, $t1 # Column mask
+        add $t4, $0, $0 # Bit index
+        add $t5, $0, $0 # One count
+        bit_index_loop_start:
+            # Isolate bit's value into $t6
+            addi $t6, $0, 1 # For shift
+            sllv $t6, $t6, $t4
+            and $t6, $t0, $t6
+            srlv $t6, $t6, $t4
+            # Done here
+
+
     # Print the unfinished codeword as test
     addiu $v0, $0, 1
     add $a0, $0, $t0

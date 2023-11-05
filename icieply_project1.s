@@ -62,6 +62,7 @@ error_2_prompt:         .asciiz "\nUnable to correct codeword if 2 errors are pr
 # Other values
 #
 
+# 2304-byte offset
 # Buffer for user input strings
 user_input_string_buf:      .space 16
 
@@ -81,6 +82,7 @@ parity_bit_t:               .word 0
 # Full 16-bit encoded codeword
 full_encoded_codeword:      .word 0
 
+# 2348-byte offset
 # User's unvalidated 11-bit data
 unvalidated_data:           .word 0
 
@@ -437,11 +439,127 @@ skip_not_odd2:
 # Input: 16-bit hamming code
 # Output: 11 bits of data
 hamming_decode:
-    # Print  
+    # Start of data segment
+    lui $t0, 0x1000
+
+    # Print start decode prompt
     addiu $v0, $0, 4
-    addu $a0, $0, $s0
+    addu $a0, $0, $t0
     addiu $a0, $a0, 384
     syscall
+
+    # Take in user 16-character codeword string and store in data segment
+    addiu $v0, $0, 8
+    addiu $a0, $t0, 2304 # Buffer
+    addiu $a1, $0, 18   # Character read limit
+    syscall
+
+    # Convert user's codeword to word
+    # String buffer starts at 2304-byte offset and LSB is 15 bytes from start of buffer
+    addi $t1, $t0, 2319 # String buffer offset
+    addi $t2, $0, 15 # Counter
+    addi $t5, $0, 15 # For calculating shift amount
+    addi $t3, $0, 49 # 1 ascii code
+    addi $t7, $0, -1 # Loop limit
+    loop2_start0:
+        # Load character
+        lb $t4, 0($t1)
+        or $0, $0, $0
+        # Branch if character is not 1
+        bne $t4, $t3, skip2_loop0
+        or $0, $0, $0
+        # Calculate shift amount (1 - counter)
+        sub $t6, $t5, $t2
+        # Move 1 into position of character
+        addi $t4, $0, 1
+        sll $t6, $t4, $t6
+        # OR to place 1 into converted word
+        or $t9, $t9, $t6
+    skip2_loop0:
+        # Decrement counter
+        addi $t2, $t2, -1
+        # Decrement string buffer offset
+        addi $t1, $t1, -1
+        # Go to next iteration if counter >= 0
+        bne $t2, $t7, loop2_start0
+        or $0, $0, $0
+
+    # Save converted data to data segment
+    sw $t9, 2320($t0)
+    or $0, $0, $0
+
+    # Extract data bits from codeword, unvalidated, and store in memory
+    addi $t1, $0, 1
+    sll $t1, $t1, 2 # Bitmask
+    addi $t2, $0, 0 # Data bit
+    addi $t3, $0, 3 # Shift back amount
+    addi $t8, $0, 0 # Data
+
+    addi $t4, $0, 0 # Counter
+    extract_data_loop_start:
+        # First, is the counter 1?
+        addi $t5, $0, 1
+        sub $t6, $t4, $t5 # $t4 and $t5 are equal if $t6 is 0
+        beq $t6, $0, isone
+        or $0, $0, $0
+
+        # Then, is the counter 4?
+        addi $t5, $0, 4
+        sub $t6, $t4, $t5 # $t4 and $t5 are equal if $t6 is 0
+        bne $t6, $0, not1or4
+        or $0, $0, $0
+    isone:
+        # So if its 4 or 1...
+        sll $t1, $t1, 1 # Shift bitmask left by 1 bit
+        addi $t3, $t3, 1 # Increment shift back amount by 1
+    not1or4:
+        sll $t1, $t1, 1 # Shift bitmask left by 1 bit
+        and $t2, $t9, $t1 # AND codeword by bitmask
+        srlv $t2, $t2, $t3 # Shift data bit right by shift back amount
+        or $t8, $t8, $t2 # OR data by data bit
+        addi $t4, $t4, 1 # Increment counter by 1
+
+        # If counter is 11, exit loop
+        addi $t7, $0, 11
+        bne $t4, $t7, extract_data_loop_start
+        or $0, $0, $0
+
+    # Print unvalidated prompt
+    addiu $v0, $0, 4
+    addu $a0, $0, $s0
+    addiu $a0, $a0, 512
+    syscall
+
+    # Print unvalidated data as binary
+    # Loop through each bit, MSB to LSB, and print either 1 or 0
+    addi $t1, $0, 15 # Bit index
+    codeword1_print_loop_start:
+        addi $t2, $0, 1
+        sllv $t2, $t2, $t1 # Shift left by bit index
+        and $t2, $t8, $t2
+        srlv $t2, $t2, $t1 # Shift right by bit index
+
+        # Branch if $t2 is not 1
+        beq $t2, $0, skip1_not_one3
+        or $0, $0, $0
+        # If its a 1, print ASCII 1
+        addi $v0, $0, 11
+        addi $a0, $0, 49 # ASCII code for 1
+        syscall
+        j done1
+        or $0, $0, $0
+
+    skip1_not_one3:
+        # If its a 0, print ASCII 0
+        addi $v0, $0, 11
+        addi $a0, $0, 48 # ASCII code for 0
+        syscall
+
+    done1:
+        addi $t1, $t1, -1 # Decrement bit index
+        addi $t3, $0, -1 # Loop limit
+        bne $t1, $t3, codeword1_print_loop_start # Exit loop if bit index is -1
+        or $0, $0, $0
 
     jr $ra
     or $0, $0, $0

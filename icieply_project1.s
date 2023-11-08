@@ -791,7 +791,8 @@ hamming_decode:
     # Print hamming syndrome
     add $a0, $0, $t1
     addi $a1, $0, 4
-    syscall
+    jal print_word_as_binary
+    or $0, $0, $0
 
     lw $s1, 0($sp)
     or $0, $0, $0

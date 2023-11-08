@@ -276,6 +276,105 @@ skip_if_not_odd_total:
     jr $ra
     or $0, $0, $0
 
+# Name: calculate_hamming_syndrome
+# Purpose: Calculate the hamming syndrome of a given codeword
+# Input: $a0 - 16-bit codeword
+# Output: Parity Bits to given spots in data segment
+calculate_hamming_syndrome:
+    add $v0, $0, $0
+    # Calculate parity bits 1, 2, 4, 8
+    add $t0, $0, $0  # Column index
+    add $t1, $0, $0  # Total parity count
+    addi $t9, $0, 1 # Shift bit for constructing syndrome
+    # Loop iteration for each parity bit
+    parity_loop_start:
+        addi $t3, $0, 1 # For shift
+        sllv $t3, $t3, $t0 # Column mask
+        add $t4, $0, $0 # Bit index
+        add $t5, $0, $0 # One count
+        bit_index_loop_start:
+            # Isolate bit's value into $t6
+            addi $t6, $0, 1 # For shift
+            sllv $t6, $t6, $t4
+            and $t6, $a0, $t6
+            srlv $t6, $t6, $t4 # Value isolated
+            
+            # Is the value a 1, then increment
+            addi $t7, $0, 1
+            bne $t6, $t7, skip_to_if_not_one # If not 1, branch
+            or $0, $0, $0
+
+            # Then check if the bit corrsponds to the current column mask
+            and $t8, $t4, $t3 # AND bit index with column mask
+            bne $t8, $t3, skip_to_if_not_one
+            or $0, $0, $0
+            # If it does correspond, increment by 1
+            addi $t5, $t5, 1 # Increment 1 counter
+        skip_to_if_not_one:
+            addi $t4, $t4, 1 # Increment bit index
+            addi $t7, $0, 16
+            bne $t4, $t7, bit_index_loop_start # Exit loop if bit index reaches 16
+            or $0, $0, $0
+
+        # If the parity is odd, set parity bit
+        addi $t7, $0, 1
+        andi $t6, $t5, 1
+        bne $t6, $t7, skip_to_if_not_odd
+        or $0, $0, $0
+
+        # Increment total parity count
+        addi $t1, $t1, 1
+        # Set check bit
+        or $v0, $v0, $t9
+        sll $t9, $t9, 1
+        or $0, $0, $0
+
+    skip_to_if_not_odd:
+        addi $t0, $t0, 1 # Increment column index
+        addi $t9, $t9, 4 # Increment parity bit data segment offset
+
+        # Exit loop if column index reaches 4
+        addi $t7, $0, 4
+        bne $t0, $t7, parity_loop_start
+        or $0, $0, $0
+
+    # Calculate total parity bit
+    add $t3, $0, $0 # Reset bit index  
+    total_parity_loop_start:
+        # Isolate bit's value into $t6
+        addi $t6, $0, 1 # For shift
+        sllv $t6, $t6, $t3
+        and $t6, $a0, $t6
+        srlv $t6, $t6, $t3 # Value isolated
+
+        # Is the bit's value 1?
+        addi $t4, $0, 1
+        bne $t6, $t4, skip_if_not_one_total # Branch if its not 1
+        or $0, $0, $0
+        addi $t1, $t1, 1 # Increment total parity count
+
+    skip_if_not_one_total:
+        addi $t3, $t3, 1 # Increment bit index
+
+        # Exit loop if bit index reaches 16
+        addi $t5, $0, 16
+        bne $t5, $t3, total_parity_loop_start
+        or $0, $0, $0
+
+    # If the parity is odd, set parity bit
+    addi $t7, $0, 1
+    andi $t8, $t1, 1
+    bne $t8, $t7, skip_if_not_odd_total
+    or $0, $0, $0
+
+    # Set parity bit
+    or $v0, $v0, $t9
+    or $0, $0, $0
+
+skip_if_not_odd_total:
+    jr $ra
+    or $0, $0, $0
+
 
 # Name: convert_binary_string_to_word
 # Purpose: Convert a string of 1s and 0s to a 32-bit word
@@ -682,7 +781,15 @@ hamming_decode:
     or $0, $0, $0
 
     # Calculate hamming syndrome
-    # Soon...
+    add $a0, $0, $s0
+    jal calculate_parity
+    or $0, $0, $0
+    addi $t1, $0, $v0
+
+    # Print hamming syndrome
+    add $a0, $0, $t1
+    addi $a1, $0, 4
+    syscall
 
     lw $s1, 0($sp)
     or $0, $0, $0

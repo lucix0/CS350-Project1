@@ -34,7 +34,7 @@ terminate_prompt:       .asciiz "\nTerminating the program..."
 invalid_option_prompt:  .asciiz "\nInvalid option. Please try again...\n"
                         .align 7
 # 1280-byte offset
-parity_bit_prompt:      .asciiz "\nParity bits (P8, P4, P2, P1, PT): "
+parity_bit_prompt:      .asciiz "\nParity bits (P1, P2, P4, P8, PT): "
                         .align 7
 # 1408-byte offset
 syndrome_prompt:        .asciiz "\nHamming syndrome (P8, P4, P2, P1): "
@@ -175,123 +175,40 @@ terminate:
     or $0, $0, $0
 
 
-# Name: hamming_encode
-# Purpose: Encode a given piece of data as a 16-11 hamming code
-# Input: 11 bits of data
-# Output: 16-bit hamming code
-hamming_encode:
-    # Start of data segment
-    lui $t0, 0x1000
-
-    # Print start encode prompt
-    addiu $v0, $0, 4
-    addu $a0, $0, $t0
-    addiu $a0, $a0, 128
-    syscall
-
-    # Take in user 11-character data string and store in data segment
-    addiu $v0, $0, 8
-    addiu $a0, $t0, 2304 # Buffer
-    addiu $a1, $0, 18   # Character read limit
-    syscall
-
-    # Convert user's data to word
-    # String buffer starts at 2304-byte offset and LSB is 10 bytes from start of buffer
-    addi $t1, $t0, 2314 # String buffer offset
-    addi $t2, $0, 10 # Counter
-    addi $t5, $0, 10 # For calculating shift amount
-    addi $t3, $0, 49 # 1 ascii code
-    addi $t7, $0, -1 # Loop limit
-    loop_start0:
-        # Load character
-        lb $t4, 0($t1)
-        or $0, $0, $0
-        # Branch if character is not 1
-        bne $t4, $t3, skip_loop0
-        or $0, $0, $0
-        # Calculate shift amount (10 - counter)
-        sub $t6, $t5, $t2
-        # Move 1 into position of character
-        addi $t4, $0, 1
-        sll $t6, $t4, $t6
-        # OR to place 1 into converted word
-        or $t9, $t9, $t6
-    skip_loop0:
-        # Decrement counter
-        addi $t2, $t2, -1
-        # Decrement string buffer offset
-        addi $t1, $t1, -1
-        # Go to next iteration if counter >= 0
-        bne $t2, $t7, loop_start0
-        or $0, $0, $0
-
-    # Save converted data to data segment
-    sw $t9, 2320($t0)
-    or $0, $0, $0
-
-    # Place data bits into 16,11 codeword
-    add $t0, $0, $0 # Codeword
-    addi $t1, $0, 1 # Bitmask
-    # Data bit 0
-    and $t2, $t9, $t1 # Isolate data bit
-    sll $t1, $t1, 1   # Shift bitmask left by 1 bit
-    sll $t2, $t2, 3   # Shift data bit left by 3 bits
-    or $t0, $t0, $t2  # OR codeword by shifted data bit
-    # Data bits 1 to 3
-    add $t3, $0, $0 # Counter
-    addi $t4, $0, 3 # Loop limit
-    bits1to3loopstart:
-        and $t2, $t9, $t1 # Isolate data bit
-        sll $t1, $t1, 1   # Shift bitmask left by 1 bit
-        sll $t2, $t2, 4   # Shift data bit left by 4 bits
-        or $t0, $t0, $t2  # OR codeword by shifted data bit
-
-        addi $t3, $t3, 1                # Increment counter
-        bne $t3, $t4, bits1to3loopstart # Exit loop if Counter is not less than 3
-        or $0, $0, $0
-    # Data bits 4 to 11
-    add $t3, $0, $0 # Counter
-    addi $t4, $0, 8 # Loop limit
-    bits4to11loopstart:
-        and $t2, $t9, $t1 # Isolate data bit
-        sll $t1, $t1, 1   # Shift bitmask left by 1 bit
-        sll $t2, $t2, 5   # Shift data bit left by 5 bits
-        or $t0, $t0, $t2  # OR codeword by shifted data bit
-
-        addi $t3, $t3, 1                 # Increment counter
-        bne $t3, $t4, bits4to11loopstart # Exit loop if Counter is not less than 8
-        or $0, $0, $0
-
-    # Calculate parity bits
-    add $t0, $0, $t0 # Codeword
-    add $t1, $0, $0  # Column index
-    add $t2, $0, $0  # Total parity count
+# Name: calculate_parity
+# Purpose: Calculate the parity bits of data bits inserted into codeword
+# Input: $a0 - 16-bit codeword
+# Output: Parity Bits to given spots in data segment
+calculate_parity:
+    # Calculate parity bits 1, 2, 4, 8
+    add $t0, $0, $0  # Column index
+    add $t1, $0, $0  # Total parity count
     addi $t9, $0, 2324 # Offset to parity bit data segment
     # Loop iteration for each parity bit
     parity_loop_start:
         addi $t3, $0, 1 # For shift
-        sllv $t3, $t3, $t1 # Column mask
+        sllv $t3, $t3, $t0 # Column mask
         add $t4, $0, $0 # Bit index
         add $t5, $0, $0 # One count
         bit_index_loop_start:
             # Isolate bit's value into $t6
             addi $t6, $0, 1 # For shift
             sllv $t6, $t6, $t4
-            and $t6, $t0, $t6
+            and $t6, $a0, $t6
             srlv $t6, $t6, $t4 # Value isolated
             
             # Is the value a 1, then increment
             addi $t7, $0, 1
-            bne $t6, $t7, skip_not_one # If not 1, branch
+            bne $t6, $t7, skip_to_if_not_one # If not 1, branch
             or $0, $0, $0
 
             # Then check if the bit corrsponds to the current column mask
             and $t8, $t4, $t3 # AND bit index with column mask
-            bne $t8, $t3, skip_not_one
+            bne $t8, $t3, skip_to_if_not_one
             or $0, $0, $0
             # If it does correspond, increment by 1
             addi $t5, $t5, 1 # Increment 1 counter
-        skip_not_one:
+        skip_to_if_not_one:
             addi $t4, $t4, 1 # Increment bit index
             addi $t7, $0, 16
             bne $t4, $t7, bit_index_loop_start # Exit loop if bit index reaches 16
@@ -300,24 +217,24 @@ hamming_encode:
         # If the parity is odd, set parity bit
         addi $t7, $0, 1
         andi $t6, $t5, 1
-        bne $t6, $t7, skip_not_odd
+        bne $t6, $t7, skip_to_if_not_odd
         or $0, $0, $0
 
         # Increment total parity count
-        addi $t2, $t2, 1
+        addi $t1, $t1, 1
         # Set parity bit
         lui $t8, 0x1000
         add $t8, $t8, $t9 # Calculate address of parity bit
         sw $t7, 0($t8)    # Place a 1 in the memory slot
         or $0, $0, $0
-    
-    skip_not_odd:
-        addi $t1, $t1, 1 # Increment column index
+
+    skip_to_if_not_odd:
+        addi $t0, $t0, 1 # Increment column index
         addi $t9, $t9, 4 # Increment parity bit data segment offset
 
         # Exit loop if column index reaches 4
         addi $t7, $0, 4
-        bne $t1, $t7, parity_loop_start
+        bne $t0, $t7, parity_loop_start
         or $0, $0, $0
 
     # Calculate total parity bit
@@ -326,16 +243,16 @@ hamming_encode:
         # Isolate bit's value into $t6
         addi $t6, $0, 1 # For shift
         sllv $t6, $t6, $t3
-        and $t6, $t0, $t6
+        and $t6, $a0, $t6
         srlv $t6, $t6, $t3 # Value isolated
 
         # Is the bit's value 1?
         addi $t4, $0, 1
-        bne $t6, $t4, skip_not_one2 # Branch if its not 1
+        bne $t6, $t4, skip_if_not_one_total # Branch if its not 1
         or $0, $0, $0
-        addi $t2, $t2, 1 # Increment total parity count
+        addi $t1, $t1, 1 # Increment total parity count
 
-    skip_not_one2:
+    skip_if_not_one_total:
         addi $t3, $t3, 1 # Increment bit index
 
         # Exit loop if bit index reaches 16
@@ -345,8 +262,8 @@ hamming_encode:
 
     # If the parity is odd, set parity bit
     addi $t7, $0, 1
-    andi $t8, $t2, 1
-    bne $t8, $t7, skip_not_odd2
+    andi $t8, $t1, 1
+    bne $t8, $t7, skip_if_not_odd_total
     or $0, $0, $0
 
     # Set parity bit
@@ -355,47 +272,210 @@ hamming_encode:
     sw $t7, 0($t8)      # Place a 1 in the memory slot
     or $0, $0, $0
 
-skip_not_odd2:
+skip_if_not_odd_total:
+    jr $ra
+    or $0, $0, $0
+
+
+# Name: convert_binary_string_to_word
+# Purpose: Convert a string of 1s and 0s to a 32-bit word
+# Input: $a0 - memory address to 16-character string. $a1 - number of 1s and 0s
+# Output: $v0 - 32-bit word
+convert_binary_string_to_word:
+    add $v0, $0, $0 # Clear return register
+    addi $t0, $a1, -1 # Length - 1
+    addi $a1, $a1, -1
+    add $a0, $a0, $t0 # Function iterates over string backwards, so start is (address + (length - 1))
+    add $t5, $0, $a1 # For calculating shift amount
+    addi $t3, $0, 49 # 1 ascii code
+    addi $t7, $0, -1 # Loop limit
+    convert_bin_to_str_loop_start:
+        # Load character
+        lb $t4, 0($a0)
+        or $0, $0, $0
+        # Branch if character is not 1
+        bne $t4, $t3, convert_bin_to_str_loop_skip
+        or $0, $0, $0
+        # Calculate shift amount (length - counter)
+        sub $t6, $t5, $a1
+        # Move 1 into position of character
+        addi $t4, $0, 1
+        sll $t6, $t4, $t6
+        # OR to place 1 into converted word
+        or $v0, $v0, $t6
+    convert_bin_to_str_loop_skip:
+        # Decrement counter
+        addi $a1, $a1, -1
+        # Decrement string buffer offset
+        addi $a0, $a0, -1
+        # Go to next iteration if counter >= 0
+        bne $a1, $t7, convert_bin_to_str_loop_start
+        or $0, $0, $0
+
+    jr $ra
+    or $0, $0, $0
+
+# Name: print_parity
+# Purpose: Prints out the 5 parity bits in the following order (1, 2, 4, 8, T)
+# Input: None
+# Output: None
+print_parity:
+    # Print prompt
+    # Prompt address
+    lui $a0, 0x1000
+    addi $a0, $a0, 1280
+    addi $v0, $0, 4
+    syscall
+
+    # Print the bits
+    # Calculate address of parity bit array
+    lui $t0, 0x1000
+    addi $t0, $t0, 2324
+    # Loop through each parity bit
+    addi $t1, $0, 4 # Counter
+    print_parity_loop_start:
+        lw $a0, 0($t0) # Load parity bit
+        or $0, $0, $0
+        addi $v0, $0, 1
+        syscall # Print bit
+
+        addi $t0, $t0, 4 # Increment parity address
+        addi $t1, $t1, -1 # Decrement counter
+        addi $t2, $0, -1
+        bne $t1, $t2, print_parity_loop_start # Exit loop if counter reaches -1
+        or $0, $0, $0
+
+    jr $ra
+    or $0, $0, $0
+
+
+# Name: hamming_encode
+# Purpose: Encode a given piece of data as a 16-11 hamming code
+# Input: 11 bits of data
+# Output: 16-bit hamming code
+hamming_encode:
+    addi $sp, $sp, -4
+    sw $s0, 0($sp)
+
+    addi $sp, $sp, -4
+    sw $s1, 0($sp)
+
+    addi $sp, $sp, -4
+    sw $s2, 0($sp)
+    
+    addi $sp, $sp, -4
+    sw $s3, 0($sp)
+
+    # Start of data segment
+    lui $s0, 0x1000
+    # Holds codeword
+    add $s1, $0, $0
+    # Holds user's converted data
+    add $s2, $0, $0
+    # Holds return address
+    add $s3, $0, $ra
+
+    # Print start encode prompt
+    addiu $v0, $0, 4
+    addu $a0, $0, $s0
+    addiu $a0, $a0, 128
+    syscall
+
+    # Take in user 11-character data string and store in data segment
+    addiu $v0, $0, 8
+    addiu $a0, $s0, 2304 # Buffer
+    addiu $a1, $0, 18   # Character read limit
+    syscall
+
+    addi $a0, $s0, 2304
+    addi $a1, $0, 11
+    jal convert_binary_string_to_word
+    or $0, $0, $0
+    add $s2, $0, $v0
+
+    # Save converted data to data segment
+    sw $s2, 2320($s0)
+    or $0, $0, $0
+    
+    # Place data bits into 16,11 codeword
+    addi $t1, $0, 1 # Bitmask
+    # Data bit 0
+    and $t2, $s2, $t1 # Isolate data bit
+    sll $t1, $t1, 1   # Shift bitmask left by 1 bit
+    sll $t2, $t2, 3   # Shift data bit left by 3 bits
+    or $s1, $s1, $t2  # OR codeword by shifted data bit
+    # Data bits 1 to 3
+    add $t3, $0, $0 # Counter
+    addi $t4, $0, 3 # Loop limit
+    bits1to3loopstart:
+        and $t2, $s2, $t1 # Isolate data bit
+        sll $t1, $t1, 1   # Shift bitmask left by 1 bit
+        sll $t2, $t2, 4   # Shift data bit left by 4 bits
+        or $s1, $s1, $t2  # OR codeword by shifted data bit
+
+        addi $t3, $t3, 1                # Increment counter
+        bne $t3, $t4, bits1to3loopstart # Exit loop if Counter is not less than 3
+        or $0, $0, $0
+    # Data bits 4 to 11
+    add $t3, $0, $0 # Counter
+    addi $t4, $0, 8 # Loop limit
+    bits4to11loopstart:
+        and $t2, $s2, $t1 # Isolate data bit
+        sll $t1, $t1, 1   # Shift bitmask left by 1 bit
+        sll $t2, $t2, 5   # Shift data bit left by 5 bits
+        or $s1, $s1, $t2  # OR codeword by shifted data bit
+
+        addi $t3, $t3, 1                 # Increment counter
+        bne $t3, $t4, bits4to11loopstart # Exit loop if Counter is not less than 8
+        or $0, $0, $0
+
+    # Calculating and printing parity bits
+    add $a0, $0, $s1
+    jal calculate_parity
+    or $0, $0, $0
+
+    jal print_parity
+    or $0, $0, $0
+    
     # Insert parity bits into codeword and print
-    lui $t1, 0x1000
     # PT
-    addi $t2, $t1, 2340 # Location of total parity bit data
+    addi $t2, $s0, 2340 # Location of total parity bit data
     lw $t3, 0($t2)
     or $0, $0, $0
-    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+    or $s1, $s1, $t3    # OR codeword with parity bit to insert
 
     # P1
-    addi $t2, $t1, 2324 # Location of parity bit 1 data
+    addi $t2, $s0, 2324 # Location of parity bit 1 data
     lw $t3, 0($t2)
     or $0, $0, $0
     sll $t3, $t3, 1     # Position bit in P1 position
-    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+    or $s1, $s1, $t3    # OR codeword with parity bit to insert
 
     # P2
     lw $t3, 4($t2)
     or $0, $0, $0
     sll $t3, $t3, 2     # Position bit in P2 position
-    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+    or $s1, $s1, $t3    # OR codeword with parity bit to insert
 
     # P4
     lw $t3, 8($t2)
     or $0, $0, $0
     sll $t3, $t3, 4     # Position bit in P4 position
-    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+    or $s1, $s1, $t3    # OR codeword with parity bit to insert
 
     # P8
     lw $t3, 12($t2)
     or $0, $0, $0
     sll $t3, $t3, 8     # Position bit in P8 position
-    or $t0, $t0, $t3    # OR codeword with parity bit to insert
+    or $s1, $s1, $t3    # OR codeword with parity bit to insert
 
     # Store completed codeword in memory
-    sw $t0, 20($t2)
+    sw $s1, 20($t2)
     or $0, $0, $0
 
     # Print prompt
     addiu $v0, $0, 4
-    addu $a0, $0, $t1
+    addu $a0, $0, $s0
     addiu $a0, $a0, 256
     syscall
 
@@ -405,7 +485,7 @@ skip_not_odd2:
     codeword_print_loop_start:
         addi $t2, $0, 1
         sllv $t2, $t2, $t1 # Shift left by bit index
-        and $t2, $t0, $t2
+        and $t2, $s1, $t2
         srlv $t2, $t2, $t1 # Shift right by bit index
 
         # Branch if $t2 is not 1
@@ -430,6 +510,23 @@ skip_not_odd2:
         bne $t1, $t3, codeword_print_loop_start # Exit loop if bit index is -1
         or $0, $0, $0
 
+    add $ra, $0, $s3
+    lw $s3, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
+    lw $s2, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
+    lw $s1, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
+    lw $s0, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
     jr $ra
     or $0, $0, $0
 
@@ -439,53 +536,38 @@ skip_not_odd2:
 # Input: 16-bit hamming code
 # Output: 11 bits of data
 hamming_decode:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    addi $sp, $sp, -4
+    sw $s0, 0($sp)
+
+    addi $sp, $sp, -4
+    sw $s1, 0($sp)
+
     # Start of data segment
-    lui $t0, 0x1000
+    lui $s1, 0x1000
 
     # Print start decode prompt
     addiu $v0, $0, 4
-    addu $a0, $0, $t0
+    addu $a0, $0, $s1
     addiu $a0, $a0, 384
     syscall
 
     # Take in user 16-character codeword string and store in data segment
     addiu $v0, $0, 8
-    addiu $a0, $t0, 2304 # Buffer
+    addiu $a0, $s1, 2304 # Buffer
     addiu $a1, $0, 18   # Character read limit
     syscall
 
-    # Convert user's codeword to word
-    # String buffer starts at 2304-byte offset and LSB is 15 bytes from start of buffer
-    addi $t1, $t0, 2319 # String buffer offset
-    addi $t2, $0, 15 # Counter
-    addi $t5, $0, 15 # For calculating shift amount
-    addi $t3, $0, 49 # 1 ascii code
-    addi $t7, $0, -1 # Loop limit
-    loop2_start0:
-        # Load character
-        lb $t4, 0($t1)
-        or $0, $0, $0
-        # Branch if character is not 1
-        bne $t4, $t3, skip2_loop0
-        or $0, $0, $0
-        # Calculate shift amount (1 - counter)
-        sub $t6, $t5, $t2
-        # Move 1 into position of character
-        addi $t4, $0, 1
-        sll $t6, $t4, $t6
-        # OR to place 1 into converted word
-        or $t9, $t9, $t6
-    skip2_loop0:
-        # Decrement counter
-        addi $t2, $t2, -1
-        # Decrement string buffer offset
-        addi $t1, $t1, -1
-        # Go to next iteration if counter >= 0
-        bne $t2, $t7, loop2_start0
-        or $0, $0, $0
+    addi $a0, $s1, 2304
+    addi $a1, $0, 16
+    jal convert_binary_string_to_word
+    or $0, $0, $0
 
-    # Save converted data to data segment
-    sw $t9, 2320($t0)
+    # Save converted codeword to data segment
+    add $s0, $0, $v0
+    sw $s0, 2320($s1)
     or $0, $0, $0
 
     # Extract data bits from codeword, unvalidated, and store in memory
@@ -494,7 +576,6 @@ hamming_decode:
     addi $t2, $0, 0 # Data bit
     addi $t3, $0, 3 # Shift back amount
     addi $t8, $0, 0 # Data
-
     addi $t4, $0, 0 # Counter
     extract_data_loop_start:
         # First, is the counter 1?
@@ -514,7 +595,7 @@ hamming_decode:
         addi $t3, $t3, 1 # Increment shift back amount by 1
     not1or4:
         sll $t1, $t1, 1 # Shift bitmask left by 1 bit
-        and $t2, $t9, $t1 # AND codeword by bitmask
+        and $t2, $s0, $t1 # AND codeword by bitmask
         srlv $t2, $t2, $t3 # Shift data bit right by shift back amount
         or $t8, $t8, $t2 # OR data by data bit
         addi $t4, $t4, 1 # Increment counter by 1
@@ -526,7 +607,7 @@ hamming_decode:
 
     # Print unvalidated prompt
     addiu $v0, $0, 4
-    addu $a0, $0, $s0
+    addu $a0, $0, $s1
     addiu $a0, $a0, 512
     syscall
 
@@ -560,6 +641,60 @@ hamming_decode:
         addi $t3, $0, -1 # Loop limit
         bne $t1, $t3, codeword1_print_loop_start # Exit loop if bit index is -1
         or $0, $0, $0
+
+    # Clear parity bits from converted codeword for calculating parity bits
+    add $t0, $0, $s0
+    # PT
+    addi $t1, $0, 1
+    nor $t1, $t1, $t1 # Flip bits
+    and $t0, $t0, $t1 # Remove parity bit
+
+    # P1
+    addi $t3, $0, 1
+    sll $t3, $t3, 1     # Position bit in P1 position
+    nor $t3, $t3, $t3   # Flip bits
+    and $t0, $t0, $t3    # AND codeword with parity bit to remove
+
+    # P2
+    addi $t3, $0, 1
+    sll $t3, $t3, 2     # Position bit in P2 position
+    nor $t3, $t3, $t3   # Flip bits
+    and $t0, $t0, $t3    # AND codeword with parity bit to remove
+
+    # P4
+    addi $t3, $0, 1
+    sll $t3, $t3, 4     # Position bit in P4 position
+    nor $t3, $t3, $t3   # Flip bits
+    and $t0, $t0, $t3    # AND codeword with parity bit to remove
+
+    # P8
+    addi $t3, $0, 1
+    sll $t3, $t3, 8     # Position bit in P8 position
+    nor $t3, $t3, $t3   # Flip bits
+    and $t0, $t0, $t3    # AND codeword with parity bit to remove
+
+    # Calculate and print parity bits
+    add $a0, $0, $t0
+    jal calculate_parity
+    or $0, $0, $0
+
+    jal print_parity
+    or $0, $0, $0
+
+    # Calculate hamming syndrome
+    # Soon...
+
+    lw $s1, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
+    lw $s0, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
+    lw $ra, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
 
     jr $ra
     or $0, $0, $0

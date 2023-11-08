@@ -348,6 +348,53 @@ print_parity:
     jr $ra
     or $0, $0, $0
 
+# Name: print_word_as_binary
+# Purpose: Prints out the given word in its binary form with 
+# Input: $a0 - Word to print, $a1 - Num of bits
+# Output: None
+print_word_as_binary:
+    addi $sp, $sp, -4
+    sw $s0, 0($sp)
+    or $0, $0, $0
+
+    # Loop through each bit, MSB to LSB, and print either 1 or 0
+    addi $t1, $a1, -1 # Bit index is length - 1
+    add $s0, $0, $a0
+    print_word_binary_loop_start:
+        addi $t2, $0, 1
+        sllv $t2, $t2, $t1 # Shift left by bit index
+        and $t2, $s0, $t2
+        srlv $t2, $t2, $t1 # Shift right by bit index
+
+        # Branch if $t2 is not 1
+        beq $t2, $0, skip_if_not_one_wb
+        or $0, $0, $0
+        # If its a 1, print ASCII 1
+        addi $v0, $0, 11
+        addi $a0, $0, 49 # ASCII code for 1
+        syscall
+        j done
+        or $0, $0, $0
+
+    skip_if_not_one_wb:
+        # If its a 0, print ASCII 0
+        addi $v0, $0, 11
+        addi $a0, $0, 48 # ASCII code for 0
+        syscall
+
+    done:
+        addi $t1, $t1, -1 # Decrement bit index
+        addi $t3, $0, -1 # Loop limit
+        bne $t1, $t3, print_word_binary_loop_start # Exit loop if bit index is -1
+        or $0, $0, $0
+
+    lw $s0, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+    
+    jr $ra
+    or $0, $0, $0
+
 
 # Name: hamming_encode
 # Purpose: Encode a given piece of data as a 16-11 hamming code
@@ -387,6 +434,7 @@ hamming_encode:
     addiu $a1, $0, 18   # Character read limit
     syscall
 
+    # Convert the string to a word representation
     addi $a0, $s0, 2304
     addi $a1, $0, 11
     jal convert_binary_string_to_word
@@ -480,36 +528,12 @@ hamming_encode:
     syscall
 
     # Print encoded codeword
-    # Loop through each bit, MSB to LSB, and print either 1 or 0
-    addi $t1, $0, 15 # Bit index
-    codeword_print_loop_start:
-        addi $t2, $0, 1
-        sllv $t2, $t2, $t1 # Shift left by bit index
-        and $t2, $s1, $t2
-        srlv $t2, $t2, $t1 # Shift right by bit index
+    add $a0, $0, $s1
+    addi $a1, $0, 16
+    jal print_word_as_binary
+    or $0, $0, $0
 
-        # Branch if $t2 is not 1
-        beq $t2, $0, skip_not_one3
-        or $0, $0, $0
-        # If its a 1, print ASCII 1
-        addi $v0, $0, 11
-        addi $a0, $0, 49 # ASCII code for 1
-        syscall
-        j done
-        or $0, $0, $0
-
-    skip_not_one3:
-        # If its a 0, print ASCII 0
-        addi $v0, $0, 11
-        addi $a0, $0, 48 # ASCII code for 0
-        syscall
-
-    done:
-        addi $t1, $t1, -1 # Decrement bit index
-        addi $t3, $0, -1 # Loop limit
-        bne $t1, $t3, codeword_print_loop_start # Exit loop if bit index is -1
-        or $0, $0, $0
-
+    # Return stack values
     add $ra, $0, $s3
     lw $s3, 0($sp)
     or $0, $0, $0
@@ -612,35 +636,13 @@ hamming_decode:
     syscall
 
     # Print unvalidated data as binary
-    # Loop through each bit, MSB to LSB, and print either 1 or 0
-    addi $t1, $0, 15 # Bit index
-    codeword1_print_loop_start:
-        addi $t2, $0, 1
-        sllv $t2, $t2, $t1 # Shift left by bit index
-        and $t2, $t8, $t2
-        srlv $t2, $t2, $t1 # Shift right by bit index
+    add $a0, $0, $t8
+    addi $a1, $0, 11
+    jal print_word_as_binary
+    or $0, $0, $0
 
-        # Branch if $t2 is not 1
-        beq $t2, $0, skip1_not_one3
-        or $0, $0, $0
-        # If its a 1, print ASCII 1
-        addi $v0, $0, 11
-        addi $a0, $0, 49 # ASCII code for 1
-        syscall
-        j done1
-        or $0, $0, $0
-
-    skip1_not_one3:
-        # If its a 0, print ASCII 0
-        addi $v0, $0, 11
-        addi $a0, $0, 48 # ASCII code for 0
-        syscall
-
-    done1:
-        addi $t1, $t1, -1 # Decrement bit index
-        addi $t3, $0, -1 # Loop limit
-        bne $t1, $t3, codeword1_print_loop_start # Exit loop if bit index is -1
-        or $0, $0, $0
+    # Save unvalidated data to data segment
+    sw $t8, 2348($s1)
 
     # Clear parity bits from converted codeword for calculating parity bits
     add $t0, $0, $s0

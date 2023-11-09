@@ -86,6 +86,7 @@ full_encoded_codeword:      .word 0
 # User's unvalidated 11-bit data
 unvalidated_data:           .word 0
 
+# 2352-byte offset
 # Hamming syndrome of inputted user codeword
 hamming_syndrome:           .word 0
 
@@ -287,12 +288,12 @@ calculate_hamming_syndrome:
     add $t1, $0, $0  # Total parity count
     addi $t9, $0, 1 # Shift bit for constructing syndrome
     # Loop iteration for each parity bit
-    parity_loop_start:
+    syndrome_loop_start:
         addi $t3, $0, 1 # For shift
         sllv $t3, $t3, $t0 # Column mask
         add $t4, $0, $0 # Bit index
         add $t5, $0, $0 # One count
-        bit_index_loop_start:
+        bit_index_loop_start1:
             # Isolate bit's value into $t6
             addi $t6, $0, 1 # For shift
             sllv $t6, $t6, $t4
@@ -301,46 +302,45 @@ calculate_hamming_syndrome:
             
             # Is the value a 1, then increment
             addi $t7, $0, 1
-            bne $t6, $t7, skip_to_if_not_one # If not 1, branch
+            bne $t6, $t7, skip_to_if_not_one1 # If not 1, branch
             or $0, $0, $0
 
             # Then check if the bit corrsponds to the current column mask
             and $t8, $t4, $t3 # AND bit index with column mask
-            bne $t8, $t3, skip_to_if_not_one
+            bne $t8, $t3, skip_to_if_not_one1
             or $0, $0, $0
             # If it does correspond, increment by 1
             addi $t5, $t5, 1 # Increment 1 counter
-        skip_to_if_not_one:
+        skip_to_if_not_one1:
             addi $t4, $t4, 1 # Increment bit index
             addi $t7, $0, 16
-            bne $t4, $t7, bit_index_loop_start # Exit loop if bit index reaches 16
+            bne $t4, $t7, bit_index_loop_start1 # Exit loop if bit index reaches 16
             or $0, $0, $0
 
         # If the parity is odd, set parity bit
         addi $t7, $0, 1
         andi $t6, $t5, 1
-        bne $t6, $t7, skip_to_if_not_odd
+        bne $t6, $t7, skip_to_if_not_odd1
         or $0, $0, $0
 
         # Increment total parity count
         addi $t1, $t1, 1
         # Set check bit
         or $v0, $v0, $t9
-        sll $t9, $t9, 1
         or $0, $0, $0
 
-    skip_to_if_not_odd:
+    skip_to_if_not_odd1:
         addi $t0, $t0, 1 # Increment column index
-        addi $t9, $t9, 4 # Increment parity bit data segment offset
+        sll $t9, $t9, 1
 
         # Exit loop if column index reaches 4
         addi $t7, $0, 4
-        bne $t0, $t7, parity_loop_start
+        bne $t0, $t7, syndrome_loop_start
         or $0, $0, $0
 
     # Calculate total parity bit
     add $t3, $0, $0 # Reset bit index  
-    total_parity_loop_start:
+    total_parity_syndrome_loop_start:
         # Isolate bit's value into $t6
         addi $t6, $0, 1 # For shift
         sllv $t6, $t6, $t3
@@ -349,29 +349,29 @@ calculate_hamming_syndrome:
 
         # Is the bit's value 1?
         addi $t4, $0, 1
-        bne $t6, $t4, skip_if_not_one_total # Branch if its not 1
+        bne $t6, $t4, skip_if_not_one_total1 # Branch if its not 1
         or $0, $0, $0
         addi $t1, $t1, 1 # Increment total parity count
 
-    skip_if_not_one_total:
+    skip_if_not_one_total1:
         addi $t3, $t3, 1 # Increment bit index
 
         # Exit loop if bit index reaches 16
         addi $t5, $0, 16
-        bne $t5, $t3, total_parity_loop_start
+        bne $t5, $t3, total_parity_syndrome_loop_start
         or $0, $0, $0
 
     # If the parity is odd, set parity bit
     addi $t7, $0, 1
     andi $t8, $t1, 1
-    bne $t8, $t7, skip_if_not_odd_total
+    bne $t8, $t7, skip_if_not_odd_total1
     or $0, $0, $0
 
     # Set parity bit
     or $v0, $v0, $t9
     or $0, $0, $0
 
-skip_if_not_odd_total:
+skip_if_not_odd_total1:
     jr $ra
     or $0, $0, $0
 
@@ -668,6 +668,12 @@ hamming_decode:
     addi $sp, $sp, -4
     sw $s1, 0($sp)
 
+    addi $sp, $sp, -4
+    sw $s2, 0($sp)
+
+    addi $sp, $sp, -4
+    sw $s3, 0($sp)
+
     # Start of data segment
     lui $s1, 0x1000
 
@@ -784,15 +790,120 @@ hamming_decode:
 
     # Calculate hamming syndrome
     add $a0, $0, $s0
-    jal calculate_parity
+    jal calculate_hamming_syndrome
     or $0, $0, $0
-    addi $t1, $0, $v0
+    add $s2, $0, $v0
+
+    # Save syndrome to data segment
+    lui $t3, 0x1000
+    sw $s2, 2352($t3)
+
+    # Print syndrome prompt
+    lui $a0, 0x1000
+    add $a0, $a0, 1408
+    addi $v0, $0, 4
+    syscall
 
     # Print hamming syndrome
-    add $a0, $0, $t1
+    add $a0, $0, $s2
     addi $a1, $0, 4
     jal print_word_as_binary
     or $0, $0, $0
+
+    # Validate total parity bit and print
+    # Count 1s in received codeword
+    addi $t1, $0, 0 # Counter
+    addi $t3, $0, 0 # One count
+    count_bits_loop_start:
+        sll $t2, $s0, $t1
+        srl $t2, $t2, 31 # Isolate value of a bit
+        bne $t2, $0, skip_to_if_not_one2
+        or $0, $0, $0
+        addi $t3, $t3, 1 # Increment one count
+    skip_to_if_not_one2:
+        addi $t1, $t1, 1 # Increment counter
+        add $t2, $0, $0 # Reset isolation register
+
+        addi $t5, $0, 32
+        bne $t5, $t1, count_bits_loop_start # Exit if counter reaches 32
+        or $0, $0, $0
+
+    andi $t6, $t3, 1 # Is register value odd? 1 if yes
+    beq $t6, $0, parity_pass # Branch if parity is even
+    or $0, $0, $0
+
+    # Print fail prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 1664
+    syscall
+    # Mark $s3 to show fail
+    addi $s3, $0, 1
+    j skip_parity
+    or $0, $0, $0
+
+parity_pass:
+    # Print pass prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 1536
+    syscall
+
+skip_parity:
+    # Determine if there's an error or not
+    bne $s2, $0, syndrome_not_zero # If syndrome is not 0, there must be an error.
+    or $0, $0, $0
+    beq $s3, $0, no_error # If total parity was even, branch.
+    or $0, $0, $0
+
+    # There must have been one error, but in the parity bits
+    j one_error
+    or $0, $0, $0
+
+syndrome_not_zero:
+    # If total parity is even, there's a double error.
+    beq $s3, $0, two_error
+    or $0, $0, $0
+
+    # Otherwise, it must be a single error.
+    j one_error
+    or $0, $0, $0
+
+two_error:
+    # Print two error prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 2048
+    syscall
+    j temp
+    or $0, $0, $0
+
+one_error:
+    # Print one error prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 1920
+    syscall
+    j temp
+    or $0, $0, $0
+
+no_error:
+    # Print no error prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 1792
+    syscall
+    j temp
+    or $0, $0, $0
+
+temp:
+    lw $s3, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
+    lw $s2, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
 
     lw $s1, 0($sp)
     or $0, $0, $0

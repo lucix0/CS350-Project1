@@ -90,11 +90,20 @@ unvalidated_data:           .word 0
 # Hamming syndrome of inputted user codeword
 hamming_syndrome:           .word 0
 
+# 2356-byte offset
 # User's fixed codeword
 fixed_codeword:             .word 0
 
+# 2360-byte offset
 # Extracted data from fixed codeword
 correct_data:               .word 0
+
+#
+# More prompts
+#
+
+# 2364-byte offset
+no_error_final_prompt:      .asciiz "\nSince no errors were detected, the correct codeword and data were previously outputted."
 
 .text
 main:
@@ -223,13 +232,24 @@ calculate_parity:
 
         # Increment total parity count
         addi $t1, $t1, 1
-        # Set parity bit
+        # Set parity bit to 1
         lui $t8, 0x1000
         add $t8, $t8, $t9 # Calculate address of parity bit
         sw $t7, 0($t8)    # Place a 1 in the memory slot
         or $0, $0, $0
-
+        j skip10
+        or $0, $0, $0
     skip_to_if_not_odd:
+        # Set parity bit to 0
+        lui $t8, 0x1000
+        add $t8, $t8, $t9 # Calculate address of parity bit
+        sw $0, 0($t8)    # Place a 1 in the memory slot
+        or $0, $0, $0
+        j skip10
+        or $0, $0, $0
+
+
+    skip10:
         addi $t0, $t0, 1 # Increment column index
         addi $t9, $t9, 4 # Increment parity bit data segment offset
 
@@ -280,7 +300,7 @@ skip_if_not_odd_total:
 # Name: calculate_hamming_syndrome
 # Purpose: Calculate the hamming syndrome of a given codeword
 # Input: $a0 - 16-bit codeword
-# Output: Parity Bits to given spots in data segment
+# Output: Hamming Syndrome Word
 calculate_hamming_syndrome:
     add $v0, $0, $0
     # Calculate parity bits 1, 2, 4, 8
@@ -674,6 +694,12 @@ hamming_decode:
     addi $sp, $sp, -4
     sw $s3, 0($sp)
 
+    addi $sp, $sp, -4
+    sw $s4, 0($sp)
+
+    addi $sp, $sp, -4
+    sw $s5, 0($sp)
+
     # Start of data segment
     lui $s1, 0x1000
 
@@ -748,6 +774,7 @@ hamming_decode:
 
     # Save unvalidated data to data segment
     sw $t8, 2348($s1)
+    add $s4, $0, $t8
 
     # Clear parity bits from converted codeword for calculating parity bits
     add $t0, $0, $s0
@@ -875,7 +902,20 @@ two_error:
     lui $a0, 0x1000
     addi $a0, $a0, 2048
     syscall
-    j temp
+
+    # Store -1 in both codeword and data slots to indicated no fix.
+    lui $t0, 0x1000
+    addi $t1, $0, -1
+    sw $t1, 2356($t0) # Codeword
+    sw $t1, 2360($t0) # Data
+
+    # Print prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 2176
+    syscall
+
+    j exit_decode_function
     or $0, $0, $0
 
 one_error:
@@ -884,7 +924,85 @@ one_error:
     lui $a0, 0x1000
     addi $a0, $a0, 1920
     syscall
-    j temp
+
+    # Fix the codeword
+    addi $t0, $0, 1
+    sll $t0, $t0, 4
+    nor $t0, $t0, $t0
+    and $s2, $s2, $t0 # Get rid of the 1 in fifth bit position of syndrome
+    # Flip bit at Hamming syndrome position
+    addi $t0, $0, 1
+    sllv $t0, $t0, $s2 # Shift by Hamming syndrome
+    xor $s5, $s0, $t0 # Corrected codeword in $s5
+    lui $t7, 0x1000
+    sw $s5, 2356($t7) # Store corrected codeword
+
+    # Extract and store data from correct codeword
+    addi $t1, $0, 1
+    sll $t1, $t1, 2 # Bitmask
+    addi $t2, $0, 0 # Data bit
+    addi $t3, $0, 3 # Shift back amount
+    addi $t8, $0, 0 # Data
+    addi $t4, $0, 0 # Counter
+    extract_data_loop_start1:
+        # First, is the counter 1?
+        addi $t5, $0, 1
+        sub $t6, $t4, $t5 # $t4 and $t5 are equal if $t6 is 0
+        beq $t6, $0, isone1
+        or $0, $0, $0
+
+        # Then, is the counter 4?
+        addi $t5, $0, 4
+        sub $t6, $t4, $t5 # $t4 and $t5 are equal if $t6 is 0
+        bne $t6, $0, not1or41
+        or $0, $0, $0
+    isone1:
+        # So if its 4 or 1...
+        sll $t1, $t1, 1 # Shift bitmask left by 1 bit
+        addi $t3, $t3, 1 # Increment shift back amount by 1
+    not1or41:
+        sll $t1, $t1, 1 # Shift bitmask left by 1 bit
+        and $t2, $s5, $t1 # AND codeword by bitmask
+        srlv $t2, $t2, $t3 # Shift data bit right by shift back amount
+        or $t8, $t8, $t2 # OR data by data bit
+        addi $t4, $t4, 1 # Increment counter by 1
+
+        # If counter is 11, exit loop
+        addi $t7, $0, 11
+        bne $t4, $t7, extract_data_loop_start1
+        or $0, $0, $0
+
+    # Store corrected data
+    lui $t7, 0x1000
+    sw $t8, 2360($t7)
+
+    # Output codeword to user
+    # Prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 640
+    syscall
+
+    # Codeword
+    add $a0, $0, $s5
+    addi $a1, $0, 16
+    jal print_word_as_binary
+    or $0, $0, $0
+
+    # Output data to user
+    # Prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 768
+    syscall
+
+    # Data
+    add $a0, $0, $t8
+    addi $a1, $0, 11
+    jal print_word_as_binary
+    or $0, $0, $0
+
+    j exit_decode_function
     or $0, $0, $0
 
 no_error:
@@ -893,10 +1011,30 @@ no_error:
     lui $a0, 0x1000
     addi $a0, $a0, 1792
     syscall
-    j temp
+
+    # Copy the codeword and data into the respective final data segment slots
+    lui $t0, 0x1000
+    sw $s0, 2356($t0) # Codeword
+    sw $s4, 2360($t0) # Data
+
+    # Output prompt
+    addi $v0, $0, 4
+    lui $a0, 0x1000
+    addi $a0, $a0, 2364
+    syscall
+
+    j exit_decode_function
     or $0, $0, $0
 
-temp:
+exit_decode_function:
+    lw $s5, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
+    lw $s4, 0($sp)
+    or $0, $0, $0
+    addi $sp, $sp, 4
+
     lw $s3, 0($sp)
     or $0, $0, $0
     addi $sp, $sp, 4
